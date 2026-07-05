@@ -17,7 +17,6 @@
 
 package net.elytrium.limboauth.handler;
 
-import at.favre.lib.crypto.bcrypt.BCrypt;
 import com.google.common.primitives.Longs;
 import com.j256.ormlite.dao.Dao;
 import com.velocitypowered.api.proxy.Player;
@@ -46,7 +45,6 @@ import net.elytrium.limboauth.Settings;
 import net.elytrium.limboauth.event.PostAuthorizationEvent;
 import net.elytrium.limboauth.event.PostRegisterEvent;
 import net.elytrium.limboauth.event.TaskEvent;
-import net.elytrium.limboauth.migration.MigrationHash;
 import net.elytrium.limboauth.model.RegisteredPlayer;
 import net.elytrium.limboauth.model.SQLRuntimeException;
 import net.kyori.adventure.bossbar.BossBar;
@@ -57,8 +55,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 public class AuthSessionHandler implements LimboSessionHandler {
 
   public static final CodeVerifier TOTP_CODE_VERIFIER = new DefaultCodeVerifier(new DefaultCodeGenerator(), new SystemTimeProvider());
-  private static final BCrypt.Verifyer HASH_VERIFIER = BCrypt.verifyer();
-  private static final BCrypt.Hasher HASHER = BCrypt.withDefaults();
 
   private static Component ratelimited;
   private static BossBar.Color bossbarColor;
@@ -89,8 +85,6 @@ public class AuthSessionHandler implements LimboSessionHandler {
   private static Component sessionExpired;
   @Nullable
   private static Title loginSuccessfulTitle;
-  @Nullable
-  private static MigrationHash migrationHash;
 
   private final Dao<RegisteredPlayer, String> playerDao;
   private final Player proxyPlayer;
@@ -181,7 +175,6 @@ public class AuthSessionHandler implements LimboSessionHandler {
         if (bossBarEnabled) {
           float secondsLeft = (authTime - (System.currentTimeMillis() - this.joinTime)) / 1000.0F;
           this.bossBar.name(serializer.deserialize(MessageFormat.format(Settings.IMP.MAIN.STRINGS.BOSSBAR, (int) secondsLeft)));
-          // It's possible, that the progress value can overcome 1, e.g. 1.0000001.
           this.bossBar.progress(Math.min(1.0F, secondsLeft * multiplier));
         }
       }
@@ -233,17 +226,12 @@ public class AuthSessionHandler implements LimboSessionHandler {
               .fire(new PostRegisterEvent(this::finishAuth, this.player, this.playerInfo, this.tempPassword))
               .thenAcceptAsync(this::finishAuth);
         }
-
-        // {@code return} placed here (not above), because
-        // AuthSessionHandler#checkPasswordsRepeat, AuthSessionHandler#checkPasswordLength, and AuthSessionHandler#checkPasswordStrength methods are
-        // invoking Player#sendMessage that sends its own message in case if the return value is false.
-        // If we don't place {@code return} here, an another message (AuthSessionHandler#sendMessage) will be sent.
         return;
       } else if (command == Command.LOGIN && !this.totpState && this.playerInfo != null) {
         String password = args[1];
         this.saveTempPassword(password);
 
-        if (password.length() > 0 && checkPassword(password, this.playerInfo, this.playerDao)) {
+        if (password.length() > 0 && checkPassword(password, this.playerInfo)) {
           if (this.playerInfo.getTotpToken().isEmpty()) {
             this.finishLogin();
           } else {
@@ -278,8 +266,6 @@ public class AuthSessionHandler implements LimboSessionHandler {
       String channel = pluginMessage.getChannel();
 
       if (channel.equals("MC|Brand") || channel.equals("minecraft:brand")) {
-        // Minecraft can't handle the plugin message immediately after going to the PLAY
-        // state, so we have to postpone sending it
         if (Settings.IMP.MAIN.MOD.ENABLED) {
           this.proxyPlayer.sendPluginMessage(this.plugin.getChannelIdentifier(this.proxyPlayer), new byte[0]);
         }
@@ -522,30 +508,10 @@ public class AuthSessionHandler implements LimboSessionHandler {
           Settings.IMP.MAIN.CRACKED_TITLE_SETTINGS.toTimes()
       );
     }
-
-    migrationHash = Settings.IMP.MAIN.MIGRATION_HASH;
   }
 
-  public static boolean checkPassword(String password, RegisteredPlayer player, Dao<RegisteredPlayer, String> playerDao) {
-    String hash = player.getHash();
-    boolean isCorrect = HASH_VERIFIER.verify(
-        password.getBytes(StandardCharsets.UTF_8),
-        hash.replace("BCRYPT$", "$2a$").getBytes(StandardCharsets.UTF_8)
-    ).verified;
-
-    if (!isCorrect && migrationHash != null) {
-      isCorrect = migrationHash.checkPassword(hash, password);
-      if (isCorrect) {
-        player.setPassword(password);
-        try {
-          playerDao.update(player);
-        } catch (SQLException e) {
-          throw new SQLRuntimeException(e);
-        }
-      }
-    }
-
-    return isCorrect;
+  public static boolean checkPassword(String password, RegisteredPlayer player) {
+    return password.equals(player.getHash());
   }
 
   public static RegisteredPlayer fetchInfo(Dao<RegisteredPlayer, String> playerDao, UUID uuid) {
@@ -570,14 +536,10 @@ public class AuthSessionHandler implements LimboSessionHandler {
     }
   }
 
-  /**
-   * Use {@link RegisteredPlayer#genHash(String)} or {@link RegisteredPlayer#setPassword}
-   */
   @Deprecated()
   public static String genHash(String password) {
-    return HASHER.hashToString(Settings.IMP.MAIN.BCRYPT_COST, password.toCharArray());
+    return password;
   }
-
 
   private enum Command {
 
