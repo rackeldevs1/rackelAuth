@@ -17,21 +17,19 @@
 
 package net.elytrium.limboauth.model;
 
-import at.favre.lib.crypto.bcrypt.BCrypt;
 import com.j256.ormlite.field.DatabaseField;
 import com.j256.ormlite.table.DatabaseTable;
 import com.velocitypowered.api.proxy.Player;
 import java.net.InetSocketAddress;
 import java.util.Locale;
 import java.util.UUID;
-import net.elytrium.limboauth.Settings;
 
 @DatabaseTable(tableName = "AUTH")
 public class RegisteredPlayer {
 
   public static final String NICKNAME_FIELD = "NICKNAME";
   public static final String LOWERCASE_NICKNAME_FIELD = "LOWERCASENICKNAME";
-  public static final String HASH_FIELD = "HASH";
+  public static final String HASH_FIELD = "HASH"; // We keep this field name for database compatibility
   public static final String IP_FIELD = "IP";
   public static final String LOGIN_IP_FIELD = "LOGINIP";
   public static final String TOTP_TOKEN_FIELD = "TOTPTOKEN";
@@ -40,8 +38,6 @@ public class RegisteredPlayer {
   public static final String UUID_FIELD = "UUID";
   public static final String PREMIUM_UUID_FIELD = "PREMIUMUUID";
   public static final String TOKEN_ISSUED_AT_FIELD = "ISSUEDTIME";
-
-  private static final BCrypt.Hasher HASHER = BCrypt.withDefaults();
 
   @DatabaseField(canBeNull = false, columnName = NICKNAME_FIELD)
   private String nickname;
@@ -111,8 +107,9 @@ public class RegisteredPlayer {
 
   }
 
+  // Refactored to return the raw password string
   public static String genHash(String password) {
-    return HASHER.hashToString(Settings.IMP.MAIN.BCRYPT_COST, password.toCharArray());
+    return password;
   }
 
   public RegisteredPlayer setNickname(String nickname) {
@@ -130,8 +127,9 @@ public class RegisteredPlayer {
     return this.lowercaseNickname;
   }
 
+  // Refactored to save as raw text
   public RegisteredPlayer setPassword(String password) {
-    this.hash = genHash(password);
+    this.hash = password;
     this.tokenIssuedAt = System.currentTimeMillis();
 
     return this;
