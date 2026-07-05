@@ -55,7 +55,6 @@ dependencies {
 
     compileOnly("org.geysermc.floodgate:api:$floodgateVersion")
 
-    implementation("at.favre.lib:bcrypt:0.9.0")
     implementation("dev.samstevens.totp:totp:1.7.1")
 
     implementation("com.j256.ormlite:ormlite-jdbc:6.1")
