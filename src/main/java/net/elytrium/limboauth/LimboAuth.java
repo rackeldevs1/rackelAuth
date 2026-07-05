@@ -19,9 +19,6 @@ package net.elytrium.limboauth;
 
 import com.google.common.primitives.Bytes;
 import com.google.common.primitives.Longs;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.google.inject.Inject;
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
@@ -187,25 +184,89 @@ public class LimboAuth {
         metrics.addCustomChart(new SimplePie("dimension", () -> String.valueOf(Settings.IMP.MAIN.DIMENSION)));
         metrics.addCustomChart(new SimplePie("save_uuid", () -> String.valueOf(Settings.IMP.MAIN.SAVE_UUID)));
         metrics.addCustomChart(new SingleLineChart("registered_players", () -> Math.toIntExact(this.playerDao.countOf())));
-
-        this.server.getScheduler().buildTask(this, () -> {
-            if (!UpdatesChecker.checkVersionByURL("https://raw.githubusercontent.com/Elytrium/LimboAuth/master/VERSION", Settings.IMP.VERSION)) {
-                LOGGER.error("Update available for LimboAuth.");
-            }
-        }).schedule();
     }
 
     public void reload() {
         Settings.IMP.reload(this.configFile, Settings.IMP.PREFIX);
-        
-        // ... (Keep the rest of your reload logic here) ...
-        
-        // Ensure you call AuthSessionHandler.reload() as before
         AuthSessionHandler.reload();
-        
-        // Database migration and command registration logic remains the same
-        // Simply ensure no BCrypt code is called during this sequence.
+        // ... (Include your existing reload logic here)
+    }
+
+    public void cacheAuthUser(Player player) {
+        String username = player.getUsername();
+        String lowercaseUsername = username.toLowerCase(Locale.ROOT);
+        this.cachedAuthChecks.put(lowercaseUsername, new CachedSessionUser(System.currentTimeMillis(), player.getRemoteAddress().getAddress(), username));
+    }
+
+    public void removeAuthenticatingPlayer(String nickname) {
+        this.authenticatingPlayers.remove(nickname);
+    }
+
+    public void addAuthenticatingPlayer(String nickname, AuthSessionHandler handler) {
+        this.authenticatingPlayers.put(nickname, handler);
     }
     
-    // ... (All other helper methods and classes remain the same) ...
+    public void incrementBruteforceAttempts(InetAddress address) {
+        this.getBruteforceUser(address).incrementAttempts();
+    }
+
+    public int getBruteforceAttempts(InetAddress address) {
+        return this.getBruteforceUser(address).getAttempts();
+    }
+
+    private CachedBruteforceUser getBruteforceUser(InetAddress address) {
+        CachedBruteforceUser user = this.bruteforceCache.get(address);
+        if (user == null) {
+            user = new CachedBruteforceUser(System.currentTimeMillis());
+            this.bruteforceCache.put(address, user);
+        }
+        return user;
+    }
+
+    public void clearBruteforceAttempts(InetAddress address) {
+        this.bruteforceCache.remove(address);
+    }
+
+    private static void setLogger(Logger logger) { LOGGER = logger; }
+    private static void setSerializer(Serializer serializer) { SERIALIZER = serializer; }
+    public static Serializer getSerializer() { return SERIALIZER; }
+    
+    // --- INNER CLASSES ---
+
+    public static class CachedUser {
+        private final long checkTime;
+        public CachedUser(long checkTime) { this.checkTime = checkTime; }
+        public long getCheckTime() { return this.checkTime; }
+    }
+
+    private static class CachedSessionUser extends CachedUser {
+        private final InetAddress inetAddress;
+        private final String username;
+        public CachedSessionUser(long checkTime, InetAddress inetAddress, String username) {
+            super(checkTime);
+            this.inetAddress = inetAddress;
+            this.username = username;
+        }
+        public InetAddress getInetAddress() { return this.inetAddress; }
+        public String getUsername() { return this.username; }
+    }
+
+    public static class CachedPremiumUser extends CachedUser {
+        private final boolean premium;
+        private boolean forcePremium;
+        public CachedPremiumUser(long checkTime, boolean premium) {
+            super(checkTime);
+            this.premium = premium;
+        }
+        public void setForcePremium(boolean forcePremium) { this.forcePremium = forcePremium; }
+        public boolean isForcePremium() { return this.forcePremium; }
+        public boolean isPremium() { return this.premium; }
+    }
+
+    private static class CachedBruteforceUser extends CachedUser {
+        private int attempts;
+        public CachedBruteforceUser(long checkTime) { super(checkTime); }
+        public void incrementAttempts() { this.attempts++; }
+        public int getAttempts() { return this.attempts; }
+    }
 }
